@@ -6,6 +6,7 @@ from transformers import AutoModel
 import pickle
 import torch
 from torch_geometric.loader import NeighborLoader
+import torch.functional as F
 
 
 with open('hetero_data.pkl', 'rb') as f:
@@ -62,9 +63,30 @@ train_loader = NeighborLoader(
     input_nodes=(('paper', data['paper'].train_mask.long()))
 )
 
-batch = next(iter(train_loader))
-print('batch')
-print(batch)
+optimizer = torch.optim.Adam(model.parameters())
 
-out = model(batch.x_dict, batch.edge_index_dict)
-print('out', out)
+
+
+def train():
+    model.train()
+
+    total_examples = total_loss = 0
+    for batch in train_loader:
+        optimizer.zero_grad()
+        batch = batch.to('cuda:0')
+        batch_size = batch['paper'].batch_size
+        out = model(batch.x_dict, batch.edge_index_dict)
+        loss = F.cross_entropy(out['paper'][:batch_size],
+                               batch['paper'].y[:batch_size])
+        loss.backward()
+        optimizer.step()
+
+        print('preds', out['paper'][:batch_size])
+        print('labels', batch['paper'].y[:batch_size])
+
+        total_examples += batch_size
+        total_loss += float(loss) * batch_size
+
+    return total_loss / total_examples
+
+avg_loss = train()
